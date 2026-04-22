@@ -1,0 +1,16 @@
+# Core ML
+torch>=2.1.0
+transformers>=4.40.0
+datasets>=2.18.0
+
+# LoRA fine-tuning
+peft>=0.10.0
+
+# 4-bit quantization for inference
+bitsandbytes>=0.43.0
+
+# Data processing
+pandas>=2.0.0
+
+# Progress bars
+tqdm>=4.66.0
