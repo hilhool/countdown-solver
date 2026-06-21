@@ -1,8 +1,15 @@
-# Model weights (too large for GitHub)
+# Model weights / adapters (regenerate with 2_train.py)
 gemma-countdown/
+gemma-countdown-*/
 
-# Training data (regenerate with 1_generate.py)
-train_verified.jsonl
+# Generated data and outputs (regenerate with the scripts)
+train_traces.jsonl
+submission.csv
+submission_checkpoint.csv
+
+# Scratch
+_*.log
+_orchestrate.sh
 
 # Python
 __pycache__/
