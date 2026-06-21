@@ -24,8 +24,10 @@ OUTPUT_FILE = "train_traces.jsonl"
 SEED = 42
 TARGET_RECORDS = 200_000
 
-# Number-count weights mirror the public test set (3:14%, 4:42%, 5:29%, 6:15%).
-NUM_COUNT_WEIGHTS = {3: 0.14, 4: 0.42, 5: 0.29, 6: 0.15}
+# The public test mix is 3:14%, 4:42%, 5:29%, 6:15%, but the model only fails on
+# the hard tail (5-6 numbers). We oversample that tail relative to the test mix so
+# the policy sees more long reductions, where first-pass errors actually happen.
+NUM_COUNT_WEIGHTS = {3: 0.10, 4: 0.30, 5: 0.32, 6: 0.28}
 
 # Targets sampled per number-set, so no single set dominates the data.
 TARGETS_PER_SET = 4
@@ -36,21 +38,49 @@ def sample_numbers(rng) -> list[int]:
     counts = list(NUM_COUNT_WEIGHTS)
     weights = list(NUM_COUNT_WEIGHTS.values())
     k = rng.choices(counts, weights=weights)[0]
-    return [rng.randint(1, 99) for _ in range(k)]
+    # Test values span 1..100 (100 does occur); sampling 1..99 would leave the
+    # model never having seen 100 as an operand.
+    return [rng.randint(1, 100) for _ in range(k)]
+
+
+# Rank operators so equal-length traces have a single deterministic ordering.
+_OP_RANK = {"+": 0, "-": 1, "*": 2, "/": 3}
+
+
+def _trace_key(steps):
+    """Sort key for choosing among traces: fewest steps first, then a fixed
+    lexicographic order. Picking the same canonical trace every time keeps the
+    training target low-entropy, which a greedy/beam decoder reproduces far more
+    reliably than an arbitrary search-order trace."""
+    return (len(steps), tuple((a, _OP_RANK[op], b, r) for (a, op, b, r) in steps))
 
 
 def collect_reachable(numbers, budget):
     """Return {target_value: trace} for every integer in 1..999 reachable from
     `numbers` with positive-integer intermediates, exploring up to `budget`
-    nodes. Each value keeps the first trace found."""
-    found = {}
+    nodes.
+
+    For each value we keep the SHORTEST trace (fewest steps, i.e. fewest numbers
+    used), breaking ties deterministically via `_trace_key`. Shorter traces mean
+    fewer chances for the decoder to deviate, and a single canonical form per
+    puzzle is much easier to learn than the first trace a search happens to hit.
+    Commutative steps are emitted larger-operand-first, matching '-' and '/', so
+    every line has one canonical shape (e.g. always '9 + 3 = 12', never '3 + 9')."""
+    found = {}  # value -> (key, steps)
     nodes = 0
+
+    def consider(val, steps):
+        if not (steps and 1 <= val <= 999):
+            return
+        key = _trace_key(steps)
+        cur = found.get(val)
+        if cur is None or key < cur[0]:
+            found[val] = (key, list(steps))
 
     def rec(items):
         nonlocal nodes
         for val, steps in items:
-            if steps and 1 <= val <= 999 and val not in found:
-                found[val] = list(steps)
+            consider(val, steps)
         if len(items) < 2:
             return
         n = len(items)
@@ -62,11 +92,13 @@ def collect_reachable(numbers, budget):
                 a_val, a_steps = items[i]
                 b_val, b_steps = items[j]
                 rest = [items[k] for k in range(n) if k != i and k != j]
-                moves = [
-                    (a_val + b_val, (a_val, "+", b_val)),
-                    (a_val * b_val, (a_val, "*", b_val)),
-                ]
                 hi, lo = (a_val, b_val) if a_val >= b_val else (b_val, a_val)
+                # Larger operand first for every op, so commutative steps share
+                # the canonical shape used by '-' and '/'.
+                moves = [
+                    (hi + lo, (hi, "+", lo)),
+                    (hi * lo, (hi, "*", lo)),
+                ]
                 if hi > lo:
                     moves.append((hi - lo, (hi, "-", lo)))
                 if lo != 0 and hi % lo == 0:
@@ -78,7 +110,7 @@ def collect_reachable(numbers, budget):
                         return
 
     rec([(int(x), []) for x in numbers])
-    return found
+    return {val: steps for val, (key, steps) in found.items()}
 
 
 def main():
@@ -96,9 +128,18 @@ def main():
         if not reachable:
             continue
 
-        targets = list(reachable)
-        rng.shuffle(targets)
-        for target in targets[:TARGETS_PER_SET]:
+        # Bias target selection toward longer reductions. Keeping the shortest
+        # trace per target is the right supervision, but most targets are
+        # reachable in 1-2 steps, so a uniform pick would flood the data with
+        # trivial examples and starve the long reductions the model fails on.
+        # Weight each target by trace length^2 and sample without replacement
+        # (Efraimidis-Spirakis: key = u^(1/w), take the largest keys).
+        scored = [
+            (rng.random() ** (1.0 / (len(reachable[t]) ** 2)), t)
+            for t in reachable
+        ]
+        scored.sort(reverse=True)
+        for _, target in scored[:TARGETS_PER_SET]:
             key = (tuple(sorted(numbers)), target)
             if key in seen:
                 continue

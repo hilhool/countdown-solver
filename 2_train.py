@@ -39,7 +39,8 @@ INPUT_FILE = "train_traces.jsonl"
 OUTPUT_DIR = "./gemma-countdown"
 NUM_SAMPLES = 200_000
 
-EPOCHS = 2
+EPOCHS = 3                     # best checkpoint is restored at the end, so extra
+                               # epochs only help if eval_loss keeps improving
 BATCH_SIZE = 4
 GRAD_ACCUM = 8                 # effective batch = 32
 LR = 2e-4
