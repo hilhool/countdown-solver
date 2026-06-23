@@ -20,8 +20,8 @@ verifier (no exhaustive search):
 
 | Stage | Solve rate |
 |------:|:-----------|
-| Beam pass (single attempt)        | 76.5% |
-| + verified sampling (≤120 / puzzle) | **93.5%** |
+| Beam pass (single attempt)        | 85.2% (1704/2000) |
+| + verified sampling (≤120 / puzzle) | **97.5% (1951/2000)** |
 
 Every reported solve is checked with exact rational arithmetic, so the solve rate
 is the true accuracy on solvable puzzles, not an estimate.
@@ -58,7 +58,7 @@ solver into a fast neural policy.
 ### 2. Fine-tuning (`2_train.py`)
 
 Supervised fine-tuning of `google/gemma-3-1b-it` with LoRA (r = 128), 4-bit base
-weights, on roughly 200k traces for 2 epochs. Loss is computed on the trace only;
+weights, on roughly 200k traces for 3 epochs. Loss is computed on the trace only;
 the prompt is masked. Training fits on a single 16 GB GPU.
 
 ### 3. Inference: generate and verify (`3_inference.py`)
